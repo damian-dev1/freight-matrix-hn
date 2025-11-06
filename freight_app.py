@@ -9,12 +9,9 @@ from datetime import datetime
 from pathlib import Path
 import os
 import sys
-import logging
+import logging 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 class PriceEditDialog(b.Toplevel):
-    """
-    A professional-looking dialog for multi-editing prices for a single region.
-    """
     def __init__(self, master, region_name, price_df, callback):
         super().__init__(master, title=f"Edit Prices for {region_name}", modal=True)
         self.region_name = region_name
@@ -54,16 +51,16 @@ class PriceEditDialog(b.Toplevel):
                     changes_made = True
             except ValueError as e:
                 messagebox.showerror("Invalid Input", f"Price for '{col_name}' must be a valid non-negative number.\nError: {e}", parent=self)
-                return
+                return # Stop on first error
         if changes_made:
-            self.callback(self.region_name)
+            self.callback(self.region_name) # Notify the main app
         self.destroy()
 class FreightApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Freight Matrix Pro v1.0")
         self.root.geometry("1200x800")
-        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing) # Handle closing event
         self.base_path = Path.home() / "FreightMatrixApp"
         self.output_path = self.base_path / "Output"
         self.postcodes_file = self.base_path / "postcodes.json"
@@ -71,8 +68,7 @@ class FreightApp:
         self.price_df = None
         self.region_postcodes = {}
         self.current_state_filter = tk.StringVar(value="All States")
-        self.current_pagesize = tk.IntVar(value=50)
-        self.changes_saved = tk.BooleanVar(value=True)
+        self.changes_saved = tk.BooleanVar(value=True) # Tracks if price changes are saved
         self.paned_window = b.PanedWindow(self.root, orient=HORIZONTAL)
         self.paned_window.pack(fill=BOTH, expand=True, padx=10, pady=10)
         self.control_frame = b.Frame(self.paned_window, width=320)
@@ -124,7 +120,10 @@ class FreightApp:
         self.progress_bar = b.Progressbar(self.main_frame, orient=HORIZONTAL, mode='determinate', bootstyle="success-striped")
         self.progress_bar.pack(fill=X, padx=5, pady=(5,0))
     def _create_price_input_tab(self):
-        """Creates the interactive price table tab with filters and controls."""
+        """
+        Creates the interactive price table tab with filters and scrollbars.
+        Removed pagination controls for full-view scrolling.
+        """
         price_tab = b.Frame(self.notebook, padding=5)
         self.notebook.add(price_tab, text='Price Input 💵')
         control_filter_frame = b.Frame(price_tab)
@@ -132,28 +131,30 @@ class FreightApp:
         b.Button(control_filter_frame, text="Add Size", command=self._add_pack_size, bootstyle="primary-outline").pack(side=LEFT, padx=(0, 5))
         b.Button(control_filter_frame, text="Remove Size", command=self._remove_pack_size, bootstyle="danger-outline").pack(side=LEFT, padx=(0, 15))
         b.Button(control_filter_frame, text="Reset Prices", command=self._reset_price_data, bootstyle="secondary").pack(side=LEFT, padx=(0, 15))
-        page_size_frame = b.Frame(control_filter_frame)
-        page_size_frame.pack(side=RIGHT, padx=(15, 0))
-        b.Label(page_size_frame, text="Page Size:").pack(side=LEFT, padx=5)
-        self.current_pagesize.trace_add('write', self._update_pagesize)
-        b.Combobox(page_size_frame, textvariable=self.current_pagesize, values=[10, 25, 50, 100, 200, 500], width=5, state='readonly').pack(side=LEFT)
         slicer_frame = b.Frame(control_filter_frame)
-        slicer_frame.pack(side=RIGHT, padx=5)
+        slicer_frame.pack(side=RIGHT, padx=5) 
         b.Label(slicer_frame, text="Filter by State:").pack(side=LEFT, padx=5)
         state_values = self._get_unique_states()
         self.current_state_filter.trace_add('write', self._filter_regions)
         b.Combobox(slicer_frame, textvariable=self.current_state_filter, values=state_values, width=15, state='readonly').pack(side=LEFT)
+        table_container = b.Frame(price_tab)
+        table_container.pack(fill=BOTH, expand=True, pady=5)
         coldata = [{"text": "Region", "stretch": False}]
         self.price_tree = Tableview(
-            master=price_tab,
+            master=table_container, 
             coldata=coldata, 
             rowdata=[], 
-            paginated=True, 
-            pagesize=self.current_pagesize.get(), 
+            paginated=False, # KEY CHANGE: Disable pagination
             autoalign=True, 
             bootstyle="primary"
         )
-        self.price_tree.pack(fill=BOTH, expand=True, pady=5)
+        self.price_tree.pack(side=LEFT, fill=BOTH, expand=True) 
+        vscrollbar = b.Scrollbar(table_container, orient=VERTICAL, command=self.price_tree.view.yview)
+        vscrollbar.pack(side=RIGHT, fill=Y)
+        self.price_tree.view.configure(yscrollcommand=vscrollbar.set)
+        hscrollbar = b.Scrollbar(table_container, orient=HORIZONTAL, command=self.price_tree.view.xview)
+        hscrollbar.pack(side=BOTTOM, fill=X)
+        self.price_tree.view.configure(xscrollcommand=hscrollbar.set)
         self.price_tree.view.bind("<Double-1>", self._on_tree_double_click_or_row)
         self.price_tree.view.bind("<Return>", self._on_tree_double_click_or_row)
     def _create_log_tab(self):
@@ -206,20 +207,10 @@ class FreightApp:
             rowdata.append([region] + [f"{val:.2f}" for val in row])
         self.price_tree.build_table_data(coldata=coldata, rowdata=rowdata)
         self._update_stats()
-        self.root.update_idletasks()
+        self.root.update_idletasks() # Ensure UI update immediately
     def _filter_regions(self, *args):
         """Callback for state filter change."""
         self._populate_price_table()
-    def _update_pagesize(self, *args):
-        """Callback for page size combobox change."""
-        try:
-            new_size = self.current_pagesize.get()
-            self.price_tree.pagesize = new_size
-            self._populate_price_table() 
-            self.log(f"Table page size set to {new_size}.")
-        except Exception as e:
-            self.log(f"ERROR: Could not update page size: {e}")
-            logging.error(f"Page size error: {e}")
     def _on_tree_double_click_or_row(self, event):
         """Handle double-click for cell editing or launch multi-edit on Region cell."""
         region_id = self.price_tree.view.identify_row(event.y)
@@ -235,7 +226,12 @@ class FreightApp:
             return
         if not column_id or column_id == "#1": return
         col_index = int(column_id.replace('#', ''))
-        col_name = self.price_tree.coldata[col_index]['text'] 
+        try:
+            col_name = self.price_tree.tabledata.columns[col_index]['text'] 
+        except Exception as e:
+            self.log(f"ERROR: Failed to retrieve column name for index {col_index}. Ensure table is populated. Error: {e}")
+            logging.error(f"Column access error: {e}", exc_info=True)
+            return
         x, y, width, height = self.price_tree.view.bbox(row_iid, column_id)
         value = self.price_df.at[region_name, col_name]
         entry = b.Entry(self.price_tree.view)
@@ -364,8 +360,9 @@ class FreightApp:
             for region, data in prices.items(): 
                 prices[region] = {k.lower(): v for k,v in data.items()}
             output_table = []
+            total_regions = len(self.region_postcodes)
             for i, (region, postcodes) in enumerate(self.region_postcodes.items()):
-                self.progress_bar['value'] = (i / len(self.region_postcodes)) * 100
+                self.progress_bar['value'] = (i / total_regions) * 100
                 self.root.update()
                 region_prices = prices.get(region)
                 if not region_prices: continue
@@ -438,10 +435,11 @@ class FreightApp:
             self._initialize_price_data()
             self._populate_price_table()
             state_values = self._get_unique_states()
-            slicer = self.price_tree.master.winfo_children()[0].winfo_children()[-1].winfo_children()[-1]
-            slicer['values'] = state_values
+            slicer_frame_children = self.price_tree.master.winfo_children()[0].winfo_children()[-1].winfo_children()
+            state_combobox = slicer_frame_children[-1]
+            state_combobox['values'] = state_values
             self.log(f"✅ Postcode mapping loaded. Found {len(self.region_postcodes)} regions.")
-            self.changes_saved.set(False)
+            self.changes_saved.set(False) # Prices need review/save after region change
         except (json.JSONDecodeError, IOError) as e:
             self.log(f"FATAL ERROR loading postcodes: {e}"); 
             logging.error(f"Postcode file load error: {e}")
@@ -500,7 +498,7 @@ class FreightApp:
         file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON Config files", "*.json")], parent=self.root, title="Save Application Configuration")
         if not file_path: return
         config_data = {
-            "theme": self.root.style.theme_names(),
+            "theme": self.root.style.theme_name(),
             "output_path": str(self.output_path),
             "price_data": self.price_df.to_dict('split') if self.price_df is not None else None
         }
